@@ -3,6 +3,7 @@ package com.greg.cart.service;
 import com.greg.cart.model.Cart;
 import com.greg.cart.repository.CartRepository;
 import net.datafaker.Faker;
+import net.datafaker.providers.base.Camera;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.http.HttpStatus;
@@ -77,22 +78,25 @@ public class CartService {
     public void generateFakeCarts(int count) {
         Faker faker = new Faker();
         for (int i = 0; i < count; i++) {
-            Cart cart = new Cart();
-            cart.setUserId(faker.idNumber().valid());
+            virtualThreadExecutor.submit(() -> {
+                Cart cart = new Cart();
+                cart.setUserId(faker.idNumber().valid());
 
-            List<Cart.CartItem> items = new ArrayList<>();
-            int itemCount = faker.number().numberBetween(1, 5);
-            for (int j = 0; j < itemCount; j++) {
-                Cart.CartItem item = new Cart.CartItem();
-                item.setProductId(faker.commerce().promotionCode());
-                item.setProductName(faker.commerce().productName());
-                item.setQuantity(faker.number().numberBetween(1, 10));
-                item.setPrice(faker.number().randomDouble(2, 10, 1000));
-                items.add(item);
-            }
-            cart.setItems(items);
+                List<Cart.CartItem> items = new ArrayList<>();
+                int itemCount = faker.number().numberBetween(1, 5);
+                for (int j = 0; j < itemCount; j++) {
+                    Cart.CartItem item = new Cart.CartItem();
+                    item.setProductId(faker.commerce().promotionCode());
+                    item.setProductName(faker.commerce().productName());
+                    item.setQuantity(faker.number().numberBetween(1, 10));
+                    item.setPrice(faker.number().randomDouble(2, 10, 1000));
+                    items.add(item);
+                }
+                cart.setItems(items);
 
-            cartRepository.save(cart);
+                cartRepository.save(cart);
+            });
+
         }
     }
     // Synchronous add item (no virtual threads, blocking I/O)
@@ -112,7 +116,7 @@ public class CartService {
 
     // Asynchronous add item using virtual threads (offloads to virtual thread, but waits for completion)
     public void addItemAsync(String userId, Cart.CartItem item) {
-        CompletableFuture.runAsync(() -> {
+        virtualThreadExecutor.submit(() -> {
             if (item == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Item cannot be null");
             }
@@ -124,7 +128,7 @@ public class CartService {
             }
             cart.getItems().add(item);
             cartRepository.save(cart); // Save on virtual thread
-        }, virtualThreadExecutor).join(); // Wait for completion to ensure success before returning
+        });
     }
 
     // Synchronous remove item (no virtual threads, blocking I/O)
@@ -145,7 +149,7 @@ public class CartService {
 
     // Asynchronous remove item using virtual threads (offloads to virtual thread, but waits for completion)
     public void removeItemAsync(String userId, String productId) {
-        CompletableFuture.runAsync(() -> {
+        virtualThreadExecutor.submit(() -> {
             if (productId == null || productId.isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Product ID cannot be null or empty");
             }
@@ -158,7 +162,7 @@ public class CartService {
                 throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Item with product ID " + productId + " not found in cart");
             }
             cartRepository.save(cart); // Save on virtual thread
-        }, virtualThreadExecutor).join(); // Wait for completion to ensure success before returning
+        }, virtualThreadExecutor); // Wait for completion to ensure success before returning
     }
 
     // Synchronous add or increase item quantity (no virtual threads, blocking I/O)
@@ -195,7 +199,7 @@ public class CartService {
 
     // Asynchronous add or increase item quantity using virtual threads (offloads to virtual thread, but waits for completion)
     public void addOrIncreaseItemAsync(String userId, Cart.CartItem item) {
-        CompletableFuture.runAsync(() -> {
+        virtualThreadExecutor.submit(() -> {
             if (item == null || item.getProductId() == null || item.getProductId().isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Item or product ID cannot be null or empty");
             }
@@ -224,6 +228,6 @@ public class CartService {
                 }
             }
             cartRepository.save(cart); // Save on virtual thread
-        }, virtualThreadExecutor).join(); // Wait for completion to ensure success before returning
+        }, virtualThreadExecutor);
     }
 }
